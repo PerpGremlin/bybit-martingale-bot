@@ -1,0 +1,3 @@
+pybit
+pyhton-dotenv
+requests

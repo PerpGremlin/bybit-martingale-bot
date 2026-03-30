@@ -1,0 +1,16 @@
+# api keys - never upload these
+.env
+
+# python cache file
+__pycache__/
+*.pyc
+*.pyo
+
+# logs
+logs/
+
+# vs code settings
+.vscode/
+
+# state file - contains live bot state, not for git
+state.json

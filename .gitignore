@@ -13,4 +13,4 @@ logs/
 .vscode/
 
 # state file - contains live bot state, not for git
-state.json
+state.jsondiscord.deb

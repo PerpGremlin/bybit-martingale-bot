@@ -42,6 +42,11 @@ import time
 # imports all our trading parametres
 import config
 
+# json is the format used to build the bot's memory
+# standard way of storing structured data as plain text
+# it survives crashes and restarts
+import json
+
 
 # ------------------------------------------------------------
 # ENVIRONMENT SETUP
@@ -197,6 +202,54 @@ def set_leverage():
         # bybit throws an error if leverage is already set
         # to the same value — this is normal, not a problem
         logging.info(f'Leverage already set or minor error: {e}')
+
+
+# ------------------------------------------------------------
+# STATE MANAGEMENT
+# loads and saves the bot's memory to state.json
+# tracks things bybit doesnt know about - anchor price,
+# ladder number, and how many re-entries have happened
+# ------------------------------------------------------------
+
+def load_state():
+    # default state - what the bot looks like with no history
+    default_state = {
+        'anchor_price': None,       # price where L1 was placed
+        'current_level': 0,         # how many levels are filled
+        'reentry_count': 0,         # how many re-entry ladders spawned
+        'active_orders': [],        # list of all open order IDs
+        'average_entry': None,      # current average entry price
+        'cycle_active': False,      # is a ladder already running
+        'moonbag_active': False,    # is the moonbag trailing stop active
+        'highest_price': None,      # highest price seen during moonbag
+    }
+
+
+    try:
+        # check if state.json exists and has content
+        if os.path.exists('state.json') and os.path.getsize('state.json') > 0:
+            with open('state.json', 'r') as f:
+                state = json.load(f)
+                logging.info('State loaded from state.json')
+                return state
+        else: 
+            # no state file found - fresh start
+            logging.info('No state file found - starting fresh')
+            return default_state
+        
+    except Exception as e:
+        logging.error(f'Error loading state: {e}')
+        return default_state
+
+
+def save_state(state):
+    try:
+        with open('state.json', 'w') as f:
+            json.dump(state, f, indent=4)
+            logging.info('State saved to state.json')
+
+    except Exception as e:
+        logging.error(f'Error saving state: {e}')
 
 
 # ------------------------------------------------------------

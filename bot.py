@@ -182,4 +182,31 @@ if __name__ == '__main__':
     # run the connection test first
     # if this fails, something is wrong before we even start
     test_connection()
+    set_leverage()
+
+
+# ------------------------------------------------------------
+# SET LEVERAGE
+# tells Bybit to use our configured leverage on SOLUSDT
+# this runs once on startup before any orders are placed
+# ------------------------------------------------------------
+
+def set_leverage():
+    try:
+        # set both buy and sell leverage to our configured value
+        # on linear perpetuals Bybit requires both to be set
+        session.set_leverage(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL,
+            buyLeverage=str(config.LEVERAGE),
+            sellLeverage=str(config.LEVERAGE)
+        )
+
+        logging.info(f'Leverage set to {config.LEVERAGE}x on {config.SYMBOL}')
+        send_telegram(f'Leverage set to {config.LEVERAGE}x on {config.SYMBOL}')
+
+    except Exception as e:
+        # bybit throws an error if leverage is already set
+        # to the same value — this is normal, not a problem
+        logging.info(f'Leverage already set or minor error: {e}')
 

@@ -1,0 +1,162 @@
+# ============================================================
+# SESSION START CHEAT SHEET
+# perpgremlin- | StateOfTheArt | Ubuntu Linux 24
+# ============================================================
+# Run these in order at the start of every session.
+# Copy nothing — type everything. That's how you learn.
+# ============================================================
+
+
+# ------------------------------------------------------------
+# STEP 1 — CHECK FIREWALL
+# ------------------------------------------------------------
+
+sudo ufw status
+
+# should say: Status: active
+# if inactive, run: sudo ufw enable
+
+
+# ------------------------------------------------------------
+# STEP 2 — CHECK THE VPS & GRID BOT
+# ------------------------------------------------------------
+
+# SSH into the VPS
+ssh root@207.148.66.96
+
+# once inside, check the grid bot screen session is running
+screen -r gridbot
+
+# you should see the bot running and printing log output
+# to detach from screen WITHOUT stopping the bot: Ctrl+A then D
+# to exit the VPS entirely: type exit
+
+
+# ------------------------------------------------------------
+# STEP 3 — OPEN THE MARTINGALE BOT PROJECT
+# ------------------------------------------------------------
+
+# navigate to the project folder and open VS Code
+cd ~/dev/projects/bybit-martingale-bot && code .
+
+# open a terminal inside VS Code: Ctrl+` (backtick, top left)
+
+
+# ------------------------------------------------------------
+# STEP 4 — CONFIRM YOU ARE ON THE DEV BRANCH
+# ------------------------------------------------------------
+
+git branch
+
+# should show: * dev
+# if on main, switch with: git checkout dev
+
+
+# ------------------------------------------------------------
+# STEP 5 — CONFIRM PROJECT FILES ARE INTACT
+# ------------------------------------------------------------
+
+ls -la
+
+# should show: bot.py, config.py, state.json, .env,
+# .env.example, .gitignore, requirements.txt, logs/
+
+
+# ------------------------------------------------------------
+# STEP 6 — CONFIRM API KEYS ARE PRESENT
+# ------------------------------------------------------------
+
+grep -c "BYBIT" .env
+
+# should return 2 (API key + secret)
+# if returns 0, your .env is empty and needs refilling
+
+
+# ------------------------------------------------------------
+# STEP 7 — SYNTAX CHECK CONFIG
+# ------------------------------------------------------------
+
+python3 -m py_compile config.py && echo "config ok"
+
+# should print: config ok
+# if errors, open config.py and check for typos
+
+
+# ------------------------------------------------------------
+# STEP 8 — CHECK GIT STATUS
+# ------------------------------------------------------------
+
+git status
+
+# should say: nothing to commit, working tree clean
+# if there are uncommitted changes, decide whether to
+# commit them before starting new work
+
+
+# ------------------------------------------------------------
+# STEP 9 — PULL LATEST FROM GITHUB
+# ------------------------------------------------------------
+
+git pull origin dev
+
+# pulls any changes from GitHub to your local machine
+# important if you ever pushed from another machine
+
+
+# ------------------------------------------------------------
+# YOU ARE NOW READY TO BUILD
+# ------------------------------------------------------------
+
+
+# ============================================================
+# QUICK REFERENCE — COMMANDS YOU USE ALL THE TIME
+# ============================================================
+
+# NAVIGATION
+# ----------
+# cd ~/dev/projects/bybit-martingale-bot    go to martingale project
+# cd ~/dev/projects/bybit-grid-bot          go to grid bot project
+# ls -la                                    list all files
+# pwd                                       show current directory
+
+# GIT
+# ---
+# git status                                see what has changed
+# git branch                                see which branch you are on
+# git checkout dev                          switch to dev branch
+# git add filename                          stage a specific file
+# git add .                                 stage all changed files
+# git commit -m "message"                   commit staged files
+# git push origin dev                       push dev to GitHub
+# git push origin main                      push main to GitHub
+# git pull origin dev                       pull latest from GitHub
+
+# PYTHON
+# ------
+# python3 bot.py                            run the bot
+# python3 -m py_compile file.py && echo ok  syntax check
+# python3 -c "import config; print('ok')"   import test
+
+# VS CODE
+# -------
+# code .                                    open current folder
+# code filename                             open a specific file
+# Ctrl+`                                    open terminal in VS Code
+# Ctrl+S                                    save file
+
+# VPS
+# ---
+# ssh root@YOUR_VPS_IP                      connect to VPS
+# screen -r gridbot                         attach to grid bot session
+# screen -ls                                list all screen sessions
+# Ctrl+A then D                             detach from screen (bot keeps running)
+# exit                                      disconnect from VPS
+
+# FIREWALL
+# --------
+# sudo ufw status                           check firewall
+# sudo ufw enable                           turn firewall on
+
+# ============================================================
+# kept with care for perpgremlin-
+# ============================================================

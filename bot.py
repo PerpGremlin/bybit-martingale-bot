@@ -174,18 +174,6 @@ def test_connection():
 
 
 # ------------------------------------------------------------
-# MAIN ENTRY POINT
-# this is what runs when you execute: python3 bot.py
-# ------------------------------------------------------------
-
-if __name__ == '__main__':
-    # run the connection test first
-    # if this fails, something is wrong before we even start
-    test_connection()
-    set_leverage()
-
-
-# ------------------------------------------------------------
 # SET LEVERAGE
 # tells Bybit to use our configured leverage on SOLUSDT
 # this runs once on startup before any orders are placed
@@ -210,3 +198,14 @@ def set_leverage():
         # to the same value — this is normal, not a problem
         logging.info(f'Leverage already set or minor error: {e}')
 
+
+# ------------------------------------------------------------
+# MAIN ENTRY POINT
+# this is what runs when you execute: python3 bot.py
+# ------------------------------------------------------------
+
+if __name__ == '__main__':
+    # run the connection test first
+    # if this fails, something is wrong before we even start
+    test_connection()
+    set_leverage()

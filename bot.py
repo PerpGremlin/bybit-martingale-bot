@@ -262,3 +262,7 @@ if __name__ == '__main__':
     # if this fails, something is wrong before we even start
     test_connection()
     set_leverage()
+    state = load_state()
+    logging.info(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
+    send_telegram(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
+    

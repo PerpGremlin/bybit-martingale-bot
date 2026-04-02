@@ -347,6 +347,46 @@ def calculate_levels(anchor_price):
 
 
 # ------------------------------------------------------------
+# MMR CHECKER
+# checks current margin ratio before placing any order
+# if mmr is too high, the order is skipped to protect margin
+# ------------------------------------------------------------
+
+def check_mmr():
+    try:
+        # query bybit for current account margin information
+        response = session.get_wallet_balance(
+            accountType="UNIFIED"
+        )
+
+        # extract the margin ratio from the response
+        # bybit returns this as a string so we convert it to float
+        mmr = float(response['result']['list'][0]['accountMMRate'])
+
+        logging.info(f'Current MMR: {mmr:.2%}')
+
+        # check against our warning threshold
+        if mmr >= config.MMR_WARNING_THRESHOLD:
+            logging.warning(f'MMR warning threshold reached: {mmr:.2%}')
+            send_telegram(f'Warning - MMR at {mmr:.2%}. Approaching order stop threshold.')
+
+        # check against our hard stop threshold
+        if mmr >= config.MMR_STOP_THRESHOLD:
+            logging.warning(f'MMR stop threshold reached: {mmr:.2%} - no new orders will be placed.')
+            send_telegram(f'MARGIN SAFETY - MMR at {mmr:.2%}. Bot pausing new orders.')
+            return False
+
+        # mmr is safe - okay to place orders
+        return True
+
+    except Exception as e:
+        logging.error(f'Error checking MMR: {e}')
+        # if we can't check mmr, do not place orders
+        # safer to skip than to risk margin
+        return False
+
+
+# ------------------------------------------------------------
 # MAIN ENTRY POINT
 # this is what runs when you execute: python3 bot.py
 # ------------------------------------------------------------
@@ -361,4 +401,6 @@ if __name__ == '__main__':
     save_state(state)
     logging.info(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
     send_telegram(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
-    
+    mmr_safe = check_mmr()
+    print(f'MMR safe to trade: {mmr_safe}')
+

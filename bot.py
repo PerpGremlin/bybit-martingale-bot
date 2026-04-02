@@ -253,6 +253,68 @@ def save_state(state):
 
 
 # ------------------------------------------------------------
+# BYBIT STATE CROSS REFERENCE
+# queries bybit for open positions and orders on startup
+# cross references against state.json to ensure they match
+# if they differ, bybit is always treated as the truth
+# ------------------------------------------------------------
+
+def reconcile_state(state):
+    try:
+        # query bybit for any open positions on SOLUSDT
+        position_response = session.get_positions(
+            category=config.CATEGORY, 
+            symbol=config.SYMBOL
+        )
+
+        # query bybit for any open orders on SOLUSDT
+        order_response = session.get_open_orders(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL
+        )
+
+        # extract the position list from the response
+        positions = position_response['result']['list']
+
+        # extract the position list from the response
+        orders = order_response['result']['list']
+
+        # check if bybit shows and active positiion
+        bybit_has_position = any(
+            float(p['size']) > 0 for p in positions
+        )
+
+        # check if bybit shows any open orders
+        bybit_has_orders = len(orders) > 0
+
+        # if bybit shows a position but state says no cycle
+        # trust bybit and update state accordingly
+        if bybit_has_position and not state['cycle_active']:
+            logging.warning('Bybit shows open position but state says no cycle - updating state')
+            state['cycle_active'] = True
+
+        # if bybit shows no position but state says cycle active
+        # trust bybit and reset state
+        if not bybit_has_position and state['cycle_active']:
+            logging.warning('Bybit shows no positions but state says cycle active - resetting state')
+            state['cycle_active'] = False
+            state['current_level'] = 0
+            state['average_entry'] = None
+
+        # update active orders in state from bybit's live data
+        state['active_orders'] = [o['orderId'] for o in orders]
+
+        logging.info(f'State reconciled - position: {bybit_has_position}, open orders: {len(orders)}')
+        send_telegram(f'State reconciled - position active: {bybit_has_position}, open orders: {len(orders)}')
+        
+        return state
+        
+    except Exception as e:
+        logging.error(f'Error reconciling state: {e}')
+        return state
+
+
+# ------------------------------------------------------------
 # MAIN ENTRY POINT
 # this is what runs when you execute: python3 bot.py
 # ------------------------------------------------------------
@@ -263,6 +325,9 @@ if __name__ == '__main__':
     test_connection()
     set_leverage()
     state = load_state()
+    state = reconcile_state(state)
+    save_state(state)
     logging.info(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
     send_telegram(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
+
     

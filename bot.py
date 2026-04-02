@@ -315,6 +315,38 @@ def reconcile_state(state):
 
 
 # ------------------------------------------------------------
+# FIBONACCI CALCULATOR
+# takes an anchor price and calculates all entry and exit
+# levels based on the risk model parametres in config.py
+# this is the mechanical heart of the bot
+# ------------------------------------------------------------
+
+def calculate_levels(anchor_price):
+    # calculate the four martingale entry prices
+    # each level is 23.6% below the previous one
+    entry_levels = []
+    for i in range(config.MAX_LEVELS):
+        level_price = anchor_price * (1 - config.LEVEL_SPACING_PCT) ** i
+        entry_levels.append(round(level_price, 4))
+
+    # calculate the three staged exit prices
+    # each is a fibonaci extention above the anchor price
+    exit_levels = []
+    for multiplier in config.EXIT_LEVELS:
+        exit_price = anchor_price * multiplier
+        exit_levels.append(round(exit_price, 4))
+
+    # log the calculated levels so we can verify them
+    logging.info(f'Anchor price: {anchor_price}')
+    logging.info(f'Entry levels: {entry_levels}')
+    logging.info(f'Exit levels: {exit_levels}')
+    return {
+        'entry_levels': entry_levels,
+        'exit_levels': exit_levels
+    }
+
+
+# ------------------------------------------------------------
 # MAIN ENTRY POINT
 # this is what runs when you execute: python3 bot.py
 # ------------------------------------------------------------
@@ -329,5 +361,4 @@ if __name__ == '__main__':
     save_state(state)
     logging.info(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
     send_telegram(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
-
     

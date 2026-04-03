@@ -518,6 +518,109 @@ def run_entry_logic(state, levels):
 
 
 # ------------------------------------------------------------
+# EXIT LOGIC
+# monitors the position and places staged exit orders
+# closes 25% at each fibonnaci extension level
+# final 25% becomes the moonbag with a trailing stop
+# ------------------------------------------------------------
+
+def run_exit_logic(state, levels):
+    try:
+        # get current price
+        response = session.get_tickers(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL
+        )
+        current_price = float(response['result']['list'][0]['lastPrice'])
+
+        # get current position size from bybit
+        position_response = session.get_positions(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL
+        )
+        positions = position_response['result']['list']
+
+        # find our open long position
+        position_size = 0
+        for p in positions:
+            if float(p['size']) > 0:
+                position_size = float(p['size'])
+                avg_entry = float(p['avgPrice'])
+                state['average_entry'] = avg_entry
+                break
+
+        # if no position exists, nothing to exit
+        if position_size == 0:
+            return state
+
+        # calculate exit quantity - 25% of total position
+        exit_qty = round(position_size * config.EXIT_SIZE_PCT, 1)
+
+        # make sure the exit qty meets minimum order size
+        if exit_qty < 0.1:
+            exit_qty = 0.1
+
+        # check each exit level
+        for i, exit_price in enumerate(levels['exit_levels']):
+            order_tag = f'exit_L{i+1}_{exit_price}'
+
+            # check if this exit order already exists
+            open_orders = session.get_open_orders(
+                category=config.CATEGORY,
+                symbol=config.SYMBOL
+            )
+            existing_tags = [o['orderLinkId'] for o in open_orders['result']['list']]
+
+            if order_tag not in existing_tags:
+                # place the exit order
+                place_order(
+                    symbol=config.SYMBOL,
+                    side="Sell",
+                    qty=exit_qty,
+                    price=exit_price,
+                    order_tag=order_tag
+                )
+
+        # handle moonbag trailing stop
+        if state['moonbag_active']:
+            # update highest price seen
+            if state['highest_price'] is None or current_price > state['highest_price']:
+                state['highest_price'] = current_price
+                save_state(state)
+
+            # check if price has dropped 10% from highest
+            trailing_stop_price = state['highest_price'] * (1 - config.TRAILING_STOP_PCT)
+
+            if current_price <= trailing_stop_price:
+                logging.info(f'Trailing stop triggered at {current_price}')
+                send_telegram(f'Moonbag trailing stop triggeres at ${current_price} - closing position')
+
+                # close remaining position at market
+                session.place_orders(
+                    category=config.CATEGORY,
+                    symbol=config.SYMBOL,
+                    side="Sell",
+                    orderType="Market",
+                    qty=str(position_size),
+                    reduceOnly=True
+                )
+                # reset state after full cycle complete
+                state['cycle_active'] = False
+                state['current_level'] = 0
+                state['anchor_price'] = None
+                state['average_entry'] = None
+                state['moonbag_active'] = False
+                state['highest_price'] = None
+                save_state(state)
+
+        return state
+
+    except Exception as e:
+        logging.error(f'Error in exit logic: {e}')
+        return state
+
+
+# ------------------------------------------------------------
 # MAIN ENTRY POINT
 # this is what runs when you execute: python3 bot.py
 # ------------------------------------------------------------
@@ -533,4 +636,4 @@ if __name__ == '__main__':
     save_state(state)
     logging.info(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
     send_telegram(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
-    
+

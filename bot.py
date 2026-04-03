@@ -442,11 +442,88 @@ def place_order(symbol, side, qty, price, order_tag):
 
 
 # ------------------------------------------------------------
+# ENTRY LOGIC
+# decides when to place each martingale level
+# compares current price to calculated entry levels
+# only places an order if the level hasnnt been filled yet
+# ------------------------------------------------------------
+
+def run_entry_logic(state, levels):
+    try:
+        # get the current SOL price from bybit
+        response = session.get_tickers(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL
+        )
+        current_price = float(response['result']['list'][0]['lastPrice'])
+        logging.info(f'Current price: {current_price}')
+
+        # if no cycle is active, place the first level order
+        if not state['cycle_active']:
+            logging.info('No active cycle - placing L1 order')
+            anchor_price = current_price
+            state['anchor_price'] = anchor_price
+            levels = calculate_levels(anchor_price)
+
+            # place L1 order at current price
+            order_tag = f'martingale_L1_{anchor_price}'
+            order_id = place_order(
+                symbol=config.SYMBOL,
+                side="Buy",
+                qty=round(config.INITIAL_ORDER_SIZE / anchor_price, 1),
+                price=anchor_price,
+                order_tag=order_tag
+            )
+
+            if order_id:
+                state['cycle_active'] = True
+                state['current_level'] = 1
+                state['active_orders'].append(order_id)
+
+            return state, levels
+
+        # if cycle is active, check if we need to place more levels
+        # loop through each entry level
+        for i, entry_price in enumerate(levels['entry_levels']):
+            level_num = i + 1
+
+            # skip levels already filled
+            if level_num <= state['current_level']:
+                continue
+
+            # is current price is at or below this level
+            # and we havent placed this order yet, place it
+            if current_price <= entry_price:
+                order_tag = f'martingale_L{level_num}_{entry_price}'
+                qty = (config.INITIAL_ORDER_SIZE * (config.MARTINGALE_MULTIPLIER ** i)) / entry_price
+
+                order_id = place_order(
+                    symbol=config.SYMBOL,
+                    side="Buy",
+                    qty=round(qty, 1),
+                    price=entry_price,
+                    order_tag=order_tag
+                )
+
+                if order_id:
+                    state['current_level'] = level_num
+                    state['active_orders'].append(order_id)
+                    save_state(state)
+                    
+        return state, levels
+
+    except Exception as e:
+        logging.error(f'Error in entry logic: {e}')
+        return state, levels
+
+
+# ------------------------------------------------------------
 # MAIN ENTRY POINT
 # this is what runs when you execute: python3 bot.py
 # ------------------------------------------------------------
 
 if __name__ == '__main__':
+
     # run the connection test first
     # if this fails, something is wrong before we even start
     test_connection()
@@ -456,14 +533,4 @@ if __name__ == '__main__':
     save_state(state)
     logging.info(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
     send_telegram(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
-    mmr_safe = check_mmr()
-    print(f'MMR safe to trade: {mmr_safe}')
-    test_order = place_order(
-        symbol=config.SYMBOL,
-        side="Buy",
-        qty=1,
-        price=50.00,
-        order_tag="test_order_001"
-    )
-print(f'Order result: {test_order}')
-
+    

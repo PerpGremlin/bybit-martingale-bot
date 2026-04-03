@@ -387,6 +387,61 @@ def check_mmr():
 
 
 # ------------------------------------------------------------
+# order placement
+# places a single limit order on bybit
+# checks for duplicates before producing to prevent
+# accidentally placing the same order twice
+# ------------------------------------------------------------
+
+def place_order(symbol, side, qty, price, order_tag):
+    try:
+        # check mmr is safe before placing any order
+        if not check_mmr():
+            logging.warning(f'Order skipped - MMR too high: {order_tag}')
+            return None
+
+        # check if an order at this price already exists
+        # this prevents duplicate orders on the same level
+        open_orders = session.get_open_orders(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL
+        )
+
+        for order in open_orders['result']['list']:
+            if float(order['price']) == float(price):
+                logging.info(f'Duplicate order detected at {price} - skipping')
+                return None
+
+        # place the limit order on bybit
+        response = session.place_order(
+            category=config.CATEGORY,
+            symbol=symbol,
+            side=side,
+            orderType="Limit",
+            qty=str(qty),
+            price=str(price),
+            timeInForce="PostOnly",
+            orderLinkId=order_tag
+        )
+
+        # check if the order was accepted
+        if response['retCode'] == 0:
+            order_id = response['result']['orderId']
+            logging.info(f'Order placed - {side} {qty} {symbol} at {price} - ID: {order_id}')
+            send_telegram(f'Order placed - {side} {qty} {symbol} at ${price}')
+            return order_id
+        else:
+            logging.error(f'Order failed {response["retMsg"]}')
+            send_telegram(f'Order failed {response["retMsg"]}')
+            return None
+    
+    except Exception as e:
+        logging.error(f'Error placing order: {e}')
+        send_telegram(f'Error placing order: {e}')
+        return None
+
+
+# ------------------------------------------------------------
 # MAIN ENTRY POINT
 # this is what runs when you execute: python3 bot.py
 # ------------------------------------------------------------
@@ -403,4 +458,12 @@ if __name__ == '__main__':
     send_telegram(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
     mmr_safe = check_mmr()
     print(f'MMR safe to trade: {mmr_safe}')
+    test_order = place_order(
+        symbol=config.SYMBOL,
+        side="Buy",
+        qty=1,
+        price=50.00,
+        order_tag="test_order_001"
+    )
+print(f'Order result: {test_order}')
 

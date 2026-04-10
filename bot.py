@@ -387,7 +387,7 @@ def check_mmr():
 
 
 # ------------------------------------------------------------
-# order placement
+# ORDER PLACEMENT
 # places a single limit order on bybit
 # checks for duplicates before producing to prevent
 # accidentally placing the same order twice
@@ -636,4 +636,109 @@ if __name__ == '__main__':
     save_state(state)
     logging.info(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
     send_telegram(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
+
+
+# ------------------------------------------------------------
+# ANCHOR RESET
+# detects rapid multi-level fills and restructures the ladder
+# if 2 or more levels fill within the rapid fill window, 
+# the anchor is moved to a new average entry price
+# and all exit targets are recalculated from there
+# ------------------------------------------------------------
+
+def check_anchor_reset(state, levels):
+    try:
+        # query bybit for recently filled orders
+        response = session.get_order_history(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL,
+            limit=20
+        )
+
+        orders == response['result']['list']
+
+        # get current time in seconds
+        now = time.time()
+
+        # count how many martingale entry orders filled
+        # within the rapid fill window
+        recent_fills = []
+        for order in orders:
+            # only look at our martingale entry orders
+            if 'martingale_L' not in order.get('orderLinkId', ''):
+                continue
+            # only look at filled orders
+            if order['orderStatus'] != 'Filled':
+                continue
+            # convert bybit timestamp from milliseconds to seconds
+            fill_time = int(order['updatedTime']) / 1000
+            # check if this fill happened within our window
+            if now - fill_time <= config.RAPID_FILL_WINDOW_SECONDS:
+                recent_fills.append(order)
+
+        # if fewer than trigger threshold filled recently
+        # no reset needed
+        if len(recent_fills) < config.ANCHOR_RESET_TRIGGER_LEVELS:
+            return state, levels
+
+        # rapid fill detected - log and alert
+        logging.warning(f'Rapid fill detected - {len(recent_fills)} levels filled quickly')
+        send_telegram(f'Anchor reset triggered - {len(recent_fills)} levels filled rapidly. Restructuring ladder.')
+
+        # query current position for new average entry
+        query_response = session.get_positions(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL
+        )
+        positions = position_response['result']['list']
+
+        new_avg_entry = None
+        for p in positions:
+            if float(p['size']) > 0:
+                new_avg_entry = float(p['avgPrice'])
+                break
+
+        if new_avg_entry is None:
+            logging.warning('Anchor reset triggered but no open position found')
+            return state, levels
+
+        # set new anchor just below average entry
+        new_anchor = round(new_avg_entry * (1 - config.SAFETY_ORDER_SPACING_PCT), 4)
+        logging.info(f'New anchor set at {new_anchor} - avg entry was {new_avg_entry}')
+
+        # recalculate all levels from new anchor
+        levels = calculate_levels(new_anchor)
+        state['anchor_price'] = new_anchor
+
+        # check mmr before placing safety order
+        if not check_mmr():
+            logging.warning('MMR too high after anchor reset - holding, no safety order placed')
+            send_telegram('Anchor reset complete - MMR too high to place safety order. Holding position.')
+            save_state(state)
+            return state, levels
+
+        # place consolidated safety order at 23.6% below new anchor
+        safety_price = levels['entry_levels'][1]
+        safety_qty = round(
+            (config.INITIAL_ORDER_SIZE * config.MARTINGALE_MULTIPLIER) / safety_price, 1
+        )
+
+        order_id + place_order(
+            symbol=config.SYMBOL,
+            side='Buy',
+            qty=safety_qty,
+            price=safety_price,
+            order_tag=f'safety_order_{safety_price}'
+        )
+
+        if order_id:
+            state['active_orders'].append(order_id)
+            save_state(state)
+            send_telegram(f'Safety order placed at ${safety_price} after anchor reset')
+
+        return state, levels
+
+    except Exception as e:
+        logging.error(f'Error in anchor reset: {e}')
+        return state, levels
 

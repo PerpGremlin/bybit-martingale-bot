@@ -792,7 +792,42 @@ def run_reentry_logic(state, levels):
         logging.error(f'Error in re-entry logic: {e}')
         return state, levels
 
+# ------------------------------------------------------------
+# API RETRY WRAPPER
+# wraps api calls in retry logic with exponential backoff
+# if a call fails itwaits and tries again up to 3 times
+# if all retries fail it alerts via telegram and returns none
+# ------------------------------------------------------------
 
+def api_calls_with_retry(func, *args, **kwargs):
+    # track how many attempts we have made
+    attempts = 0
+
+    while attempts < config.API_RETRY_ATTEMPTS:
+        try:
+            # attempt the api call
+            result = func(*args, **kwargs)
+            return result
+
+        except Exception as e:
+            attempts += 1
+            # calculate wait time - doubles each attempt
+            # attempt 1: 2s, attempt 2: 4s, attempt 3: 8s
+            wait_time = config.API_RETRY_DELAY_SECONDS * (2 ** (attempts - 1))
+
+            logging.warning(f'API call failed (attempt {attempts} of {config.API_RETRY_ATTEMPTS}): {e}')
+
+            # if we have used all attempts, alert and give up.
+            if attempts >= config.API_RETRY_ATTEMPTS:
+                logging.error(f'API call failed after {config.API_RETRY_ATTEMPTS} attempts - giving up')
+                Send_telegram(f'API unreachable after {config.API_RETRY_ATTEMPTS} attempts. Bot pausing. Check connection.')
+                return None
+
+            # wait before trying again
+            logging.info(f'Retrying in {wait_time} seconds...')
+            time.sleep(wait_time)
+
+    return None
 
 
 # ------------------------------------------------------------

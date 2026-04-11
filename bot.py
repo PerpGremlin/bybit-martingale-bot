@@ -619,25 +619,6 @@ def run_exit_logic(state, levels):
         logging.error(f'Error in exit logic: {e}')
         return state
 
-
-# ------------------------------------------------------------
-# MAIN ENTRY POINT
-# this is what runs when you execute: python3 bot.py
-# ------------------------------------------------------------
-
-if __name__ == '__main__':
-
-    # run the connection test first
-    # if this fails, something is wrong before we even start
-    test_connection()
-    set_leverage()
-    state = load_state()
-    state = reconcile_state(state)
-    save_state(state)
-    logging.info(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
-    send_telegram(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
-
-
 # ------------------------------------------------------------
 # ANCHOR RESET
 # detects rapid multi-level fills and restructures the ladder
@@ -741,4 +722,96 @@ def check_anchor_reset(state, levels):
     except Exception as e:
         logging.error(f'Error in anchor reset: {e}')
         return state, levels
+
+# ------------------------------------------------------------
+# RE-ENTRY LOGIC
+# monitors average entry price after partial exits     
+# if price drops below average entry, cancels remaining
+# exit orders and spawns a fresh ladder from the new anchor
+# only fires if re-entry count is below maximum
+# ------------------------------------------------------------
+
+def run_reentry_logic(state, levels):
+    try:
+        # only run if a cycle is active
+        if not state['cycle_active']:
+            return state, levels
+
+        # only run if we have an average entry to compare against
+        if state['reentry_count'] >= config.MAX_ENTRY_LADDERS:
+            logging.info('Max re-entry ladders reached - holding position')
+            return state, levels
+
+        # get current price
+        response = session.get_tickers(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL
+        )
+        current_price = float(response['result']['list'][0]['lastPrice'])
+
+        # if price is above average entry, nothing to do
+        if current_price >= state['average_entry']:
+            return state, levels
+
+        # price is below average entry - re-entry triggered
+        logging.warning(f'Price {current_price} below average entry {state["average_entry"]} - re-entry triggered')
+        send_telegram(f're-entry triggered - price ${current_price} below average entry ${state["average_entry"]}. Spawning new ladder.')
+
+        # cancel all open exit orders
+        open_orders = session.get_open_orders(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL
+        )
+
+        for order in open_orders['result']['list']:
+            # only cancel exit orders, not entry orders
+            if 'exit_L' in order.get('orderLinkId', ''):
+                session.cancel_order(
+                    category=config.CATEGORY,
+                    symbol=config.SYMBOL,
+                    orderrId=order['orderId']
+                )
+                logging.info(f'Cancelled exit order: {order["orderId"]}')
+
+        # set new anchor just below current average entry
+        new_anchor = round(current_price * (1 - config.LEVEL_SPACING_PCT), 4)
+        logging.info(f'New re-entry anchor set at {new_anchor}')
+
+        # recalculate all levels from new anchor
+        level = calculate_levels(new_anchor)
+        state['anchor_price'] = new_anchor
+        state['reerntry_count'] += 1
+
+        logging.info(f'Re-entry ladder {state["reentry_count"]} of {config.MAX_REENTRY_LADDERS}')
+        send_telegram(f'New ladder spawned from ${new_anchor} - re-entry {state["reentry_count"]} of {config.MAX_REENTRY_LADDERS}')
+
+        save_state(state)
+        return state, levels
+
+    except Exception as e:
+        logging.error(f'Error in re-entry logic: {e}')
+        return state, levels
+
+
+
+
+# ------------------------------------------------------------
+# MAIN ENTRY POINT
+# this is what runs when you execute: python3 bot.py
+# ------------------------------------------------------------
+
+if __name__ == '__main__':
+
+    # run the connection test first
+    # if this fails, something is wrong before we even start
+    test_connection()
+    set_leverage()
+    state = load_state()
+    state = reconcile_state(state)
+    save_state(state)
+    logging.info(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
+    send_telegram(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
+
+
+
 

@@ -636,7 +636,7 @@ def check_anchor_reset(state, levels):
             limit=20
         )
 
-        orders == response['result']['list']
+        orders = response['result']['list']
 
         # get current time in seconds
         now = time.time()
@@ -667,7 +667,7 @@ def check_anchor_reset(state, levels):
         send_telegram(f'Anchor reset triggered - {len(recent_fills)} levels filled rapidly. Restructuring ladder.')
 
         # query current position for new average entry
-        query_response = session.get_positions(
+        position_response = session.get_positions(
             category=config.CATEGORY,
             symbol=config.SYMBOL
         )
@@ -704,7 +704,7 @@ def check_anchor_reset(state, levels):
             (config.INITIAL_ORDER_SIZE * config.MARTINGALE_MULTIPLIER) / safety_price, 1
         )
 
-        order_id + place_order(
+        order_id = place_order(
             symbol=config.SYMBOL,
             side='Buy',
             qty=safety_qty,
@@ -738,7 +738,7 @@ def run_reentry_logic(state, levels):
             return state, levels
 
         # only run if we have an average entry to compare against
-        if state['reentry_count'] >= config.MAX_ENTRY_LADDERS:
+        if state['reentry_count'] >= config.MAX_REENTRY_LADDERS:
             logging.info('Max re-entry ladders reached - holding position')
             return state, levels
 
@@ -769,7 +769,7 @@ def run_reentry_logic(state, levels):
                 session.cancel_order(
                     category=config.CATEGORY,
                     symbol=config.SYMBOL,
-                    orderrId=order['orderId']
+                    orderId=order['orderId']
                 )
                 logging.info(f'Cancelled exit order: {order["orderId"]}')
 
@@ -780,7 +780,7 @@ def run_reentry_logic(state, levels):
         # recalculate all levels from new anchor
         level = calculate_levels(new_anchor)
         state['anchor_price'] = new_anchor
-        state['reerntry_count'] += 1
+        state['reentry_count'] += 1
 
         logging.info(f'Re-entry ladder {state["reentry_count"]} of {config.MAX_REENTRY_LADDERS}')
         send_telegram(f'New ladder spawned from ${new_anchor} - re-entry {state["reentry_count"]} of {config.MAX_REENTRY_LADDERS}')
@@ -820,7 +820,7 @@ def api_calls_with_retry(func, *args, **kwargs):
             # if we have used all attempts, alert and give up.
             if attempts >= config.API_RETRY_ATTEMPTS:
                 logging.error(f'API call failed after {config.API_RETRY_ATTEMPTS} attempts - giving up')
-                Send_telegram(f'API unreachable after {config.API_RETRY_ATTEMPTS} attempts. Bot pausing. Check connection.')
+                send_telegram(f'API unreachable after {config.API_RETRY_ATTEMPTS} attempts. Bot pausing. Check connection.')
                 return None
 
             # wait before trying again
@@ -828,6 +828,83 @@ def api_calls_with_retry(func, *args, **kwargs):
             time.sleep(wait_time)
 
     return None
+
+
+# ------------------------------------------------------------
+# MAIN LOOP
+# the heartbeat of the bot - runs every 6 seconds
+# calls every function in the sequence on each iteration
+# this is what makes the bot run continuously
+# ------------------------------------------------------------
+
+def run_bot():
+    # load state and reconcile with bybit on startup
+    state = load_state()
+    state = reconcile_state(state)
+    save_state(state)
+
+    # calculate initial levels from anchor if cycle is active
+    # otherwise levels will be set when first order is placed
+    if state['anchor_price']:
+        levels = calculate_levels(state['anchor_price'])
+    else:
+        levels = {'entry_levels': [], 'exit_levels': []}
+
+    # track time for heartbeat and pnl summary
+    last_heartbeat = time.time()
+    last_pnl_summary = time.time()
+
+    logging.info('Main loop starting')
+    send_telegram('Martingale bot main loop started - Monitoring market')
+
+    # main loop - runs forever until manually stopped
+    while True:
+        try:
+            # run entry logic - checks if new orders need placing
+            state, levels = run_entry_logic(state, levels)
+
+            # run exit logic - checks if exit orders need placing
+            # and manages the moonbag trailing stop
+            state = run_exit_logic(state, levels)
+
+            # check for rapid fills and restructure if needed
+            state, levels = check_anchor_reset(state, levels)
+
+            # check if re-erntry ladder needed
+            state, levels = run_reentry_logic(state, levels)
+
+            # heartbeat - send telegram every 12 hours
+            now = time.time()
+            if now - last_heartbeat >= config.HEARTBEAT_INTERVAL_SECONDS:
+                logging.info('Heartbeat - bot is alive')
+                send_telegram('Heartbeat - martingale bot running normally')
+                last_heartbeat = now
+
+            # pnl summary - send telegram every 24 hours
+            if now - last_pnl_summary >= config.PNL_SUMMARY_INTERVAL_SECONDS:
+                # query wallet for current balance
+                wallet = session.get_wallet_balance(accountType="UNIFIED")
+                balance = wallet['result']['list'][0]['totalWalletBalance']
+                upnl = wallet['result']['list'][0]['totalPerpUpl']
+                logging.info(f'Daily PnL summary - balance: {balance}, uPnL: {upnl}')
+                send_telegram(f' Daily summary - balance ${balance} | unrealised PnL: ${upnl} | level: {state["current_level"]} | re-entries: {state["reentry_count"]}')
+                last_pnl_summary = now
+
+            # wait before the next iteration
+            logging.info(f'Loop complete - waiting {config.LOOP_INTERVAL_SECONDS} seconds')
+            time.sleep(config.LOOP_INTERVAL_SECONDS)
+
+        except KeyboardInterrupt:
+            # ctrl+c pressed - shut down cleanly
+            logging.info('Bot stopped by user')
+            send_telegram('Martingale bot stopped manually')
+            break
+
+        except Exception as e:
+            # something went wrong - log it and keep running
+            logging.error(f'Error in main loop: {e}')
+            send_telegram(f'Main loop error: {e} - bot continuing')
+            time.sleep(config.LOOP_INTERVAL_SECONDS)
 
 
 # ------------------------------------------------------------
@@ -841,12 +918,4 @@ if __name__ == '__main__':
     # if this fails, something is wrong before we even start
     test_connection()
     set_leverage()
-    state = load_state()
-    state = reconcile_state(state)
-    save_state(state)
-    logging.info(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
-    send_telegram(f'Bot state loaded - cycle active: {state["cycle_active"]}, level: {state["current_level"]}')
-
-
-
-
+    run_bot()

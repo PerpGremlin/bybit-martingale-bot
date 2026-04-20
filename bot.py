@@ -420,8 +420,9 @@ def place_order(symbol, side, qty, price, order_tag):
             orderType="Limit",
             qty=str(qty),
             price=str(price),
-            timeInForce="PostOnly",
-            orderLinkId=order_tag
+            timeInForce="GTC",
+            orderLinkId=order_tag,
+            positionIdx=1
         )
 
         # check if the order was accepted
@@ -466,7 +467,7 @@ def run_entry_logic(state, levels):
             levels = calculate_levels(anchor_price)
 
             # place L1 order at current price
-            order_tag = f'martingale_L1_{anchor_price}'
+            order_tag = f'martingale_L1_{anchor_price}_{int(time.time())}'
             order_id = place_order(
                 symbol=config.SYMBOL,
                 side="Buy",
@@ -494,7 +495,7 @@ def run_entry_logic(state, levels):
             # is current price is at or below this level
             # and we havent placed this order yet, place it
             if current_price <= entry_price:
-                order_tag = f'martingale_L{level_num}_{entry_price}'
+                order_tag = f'martingale_L{level_num}_{entry_price}_{int(time.time())}'
                 qty = (config.INITIAL_ORDER_SIZE * (config.MARTINGALE_MULTIPLIER ** i)) / entry_price
 
                 order_id = place_order(
@@ -738,6 +739,9 @@ def run_reentry_logic(state, levels):
             return state, levels
 
         # only run if we have an average entry to compare against
+        if state['average_entry'] is None:
+            return state, levels
+        # check if we have hit the re-entry limit
         if state['reentry_count'] >= config.MAX_REENTRY_LADDERS:
             logging.info('Max re-entry ladders reached - holding position')
             return state, levels
@@ -778,7 +782,7 @@ def run_reentry_logic(state, levels):
         logging.info(f'New re-entry anchor set at {new_anchor}')
 
         # recalculate all levels from new anchor
-        level = calculate_levels(new_anchor)
+        levels = calculate_levels(new_anchor)
         state['anchor_price'] = new_anchor
         state['reentry_count'] += 1
 
@@ -845,7 +849,9 @@ def run_bot():
 
     # calculate initial levels from anchor if cycle is active
     # otherwise levels will be set when first order is placed
-    if state['anchor_price']:
+    if state['cycle_active'] and state['anchor_price'] is None:
+        state, levels = cold_start_recovery(state)
+    elif state['anchor_price']:
         levels = calculate_levels(state['anchor_price'])
     else:
         levels = {'entry_levels': [], 'exit_levels': []}
@@ -906,6 +912,87 @@ def run_bot():
             send_telegram(f'Main loop error: {e} - bot continuing')
             time.sleep(config.LOOP_INTERVAL_SECONDS)
 
+
+# ------------------------------------------------------------
+# COLD START RECOVERY
+# fires on startup when an existing position is detected
+# rebuilds full ladder context from bybit live data
+# so the bot can resume correctly after any restart
+# ------------------------------------------------------------
+
+def cold_start_recovery(state):
+    try:
+        logging.info('Existing position detected - running cold start recovery')
+        send_telegram('Existing position detected - rebuilding ladder context from Bybit')
+
+        # query bybit for current position details
+        position_response = session.get_positions(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL
+        )
+        positions = position_response['result']['list']
+
+        # find your open long position
+        position_size = 0
+        avg_entry = None
+        for p in positions:
+            if float(p['size']) > 0:
+                positiion_size = float(p['size'])
+                avg_entry = float(p['avgPrice'])
+                break
+
+        # if no position is found something is wrong - return state as is
+        if avg_entry is None:
+            logging.warning('Cold start recovery - no open positions found on bybit')
+            return state, {'entry_levels': [], 'exit_levels': []}
+
+        logging.info('Position found - size: {position_size} SOL, avg entry: ${avg_entry}')
+
+        # rebuild anchor price from avg entry
+        # we use average entry as the anchor for level calculations
+        anchor_price = avg_entry
+        state['anchor_price'] = anchor_price
+        state['average_entry'] = avg_entry
+        state['cycle_active'] = True
+
+        # recalculate all fibonacci levels from recovered anchor
+        levels = calculate_levels(anchor_price)
+
+        logging.info(f'Anchor recovered at ${anchor_price}')
+        logging.info(f'Entry levels: {levels["entry_levels"]}')
+        logging.info(f'Exit levels: {levels["exit_levels"]}')
+
+        # query open orders to determine current level
+        order_response - session.get_open_orders(
+            category=config.CATEGORY,
+            symbol=config.SYMBOL
+        )
+        open_orders = order_response['result']['list']
+
+        # count how many entry levels are already filled
+        # by comparing position size against level order sizes
+        level = 1
+        cumulative_qty = config.INITIAL_ORDER_SIZE / anchor_price
+        while cumulative_qty < position_size and level < config.MAX_LEVELS:
+            level += 1
+            next_qty = (config.INITIAL_ORDER_SIZE * (config.MARTINGALE_MULTIPLIER ** (level - 1))) / levels['entry_levels'][level - 1]
+            cumulative_qty += next_qty
+
+        state['current_level'] = level
+        logging.info(f'Recovered to level {level}')
+
+        # update active orders list from bybit
+        state['active_orders'] = [o['orderId'] for o in open_orders]
+
+        save_state(state)
+
+        send_telegram(f'Cold start recovery complete - level {level} avg entry ${avg_entry}, position {position_size} SOL')
+
+        return state, levels
+
+    except Exception as e:
+        logging.error(f'Error in cold start recovery: {e}')
+        return state, {'entry_levels': [], 'exit_levels': []}
 
 # ------------------------------------------------------------
 # MAIN ENTRY POINT

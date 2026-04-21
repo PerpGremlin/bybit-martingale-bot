@@ -472,7 +472,7 @@ def run_entry_logic(state, levels):
             order_id = place_order(
                 symbol=config.SYMBOL,
                 side="Buy",
-                qty=round(config.INITIAL_ORDER_SIZE / anchor_price, 1),
+                qty=round(config.INITIAL_ORDER_SIZE / anchor_price, 1), 0.1),
                 price=anchor_price,
                 order_tag=order_tag
             )
@@ -502,7 +502,7 @@ def run_entry_logic(state, levels):
                 order_id = place_order(
                     symbol=config.SYMBOL,
                     side="Buy",
-                    qty=round(qty, 1),
+                    qty=round(qty, 1), 0.1),
                     price=entry_price,
                     order_tag=order_tag
                 )

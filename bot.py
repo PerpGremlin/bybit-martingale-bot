@@ -959,7 +959,7 @@ def cold_start_recovery(state):
         avg_entry = None
         for p in positions:
             if float(p['size']) > 0:
-                positiion_size = float(p['size'])
+                position_size = float(p['size'])
                 avg_entry = float(p['avgPrice'])
                 break
 
@@ -985,7 +985,7 @@ def cold_start_recovery(state):
         logging.info(f'Exit levels: {levels["exit_levels"]}')
 
         # query open orders to determine current level
-        order_response - session.get_open_orders(
+        order_response = session.get_open_orders(
             category=config.CATEGORY,
             symbol=config.SYMBOL
         )

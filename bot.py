@@ -222,6 +222,7 @@ def load_state():
         'cycle_active': False,      # is a ladder already running
         'moonbag_active': False,    # is the moonbag trailing stop active
         'highest_price': None,      # highest price seen during moonbag
+        'exit_order_tags': {}       # so we dont get errors from incorrect tags
     }
 
 
@@ -563,7 +564,15 @@ def run_exit_logic(state, levels):
 
         # check each exit level
         for i, exit_price in enumerate(levels['exit_levels']):
-            order_tag = f'exit_L{i+1}_{exit_price}'
+            # check if we already have a tag for this exit level
+            # reuse existing tag if we do, generate new one if not
+            tag_key = f'exit_L{i+1}'
+            if tag_key in state['exit_order_tags']:
+                order_tag = state['exit_order_tags'][tag_key]
+            else:
+                order_tag = f'exit_L{i+1}_{exit_price}_{int(time.time())}'
+                state['exit_order_tags'][tag_key] = order_tag
+                save_state(state)
 
             # check if this exit order already exists
             open_orders = session.get_open_orders(
@@ -571,7 +580,6 @@ def run_exit_logic(state, levels):
                 symbol=config.SYMBOL
             )
             existing_tags = [o['orderLinkId'] for o in open_orders['result']['list']]
-
             if order_tag not in existing_tags:
                 # place the exit order
                 place_order(

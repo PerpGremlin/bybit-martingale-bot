@@ -581,6 +581,20 @@ def run_exit_logic(state, levels):
             )
             existing_tags = [o['orderLinkId'] for o in open_orders['result']['list']]
             if order_tag not in existing_tags:
+                # refresh position size before placing exit order
+                # skip if position has been reduced to zero
+                position_response = session.get_positions(
+                    category=config.CATEGORY,
+                    symbol=config.SYMBOL
+                )
+                positions = position_response['result']['list']
+                current_size = 0
+                for p in positions:
+                    if float(p['size']) > 0 and p['side'] == 'Buy':
+                        current_size = float(p['size'])
+                if current_size == 0:
+                    logging.info('No position remaining - skipping exit order')
+                    break
                 # place the exit order
                 place_order(
                     symbol=config.SYMBOL,

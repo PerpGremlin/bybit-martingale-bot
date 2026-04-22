@@ -568,8 +568,6 @@ def run_exit_logic(state, levels):
             return state
 
         # calculate exit quantity - 25% of total position
-        exit_qty = round(position_size * config.EXIT_SIZE_PCT, 1)
-
         # make sure the exit qty meets minimum order size
         exit_qty = max(round(position_size * config.EXIT_SIZE_PCT, 1), 0.1)
 

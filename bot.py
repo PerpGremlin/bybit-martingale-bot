@@ -294,8 +294,8 @@ def reconcile_state(state):
             logging.warning('Bybit shows open position but state says no cycle - updating state')
             state['cycle_active'] = True
 
-        if bybit_has_positions:
-            for p in positions:
+        if bybit_has_position:
+            for p in position:
                 if float(p['size']) > 0:
                     live_avg_entry = float(p['avgPrice'])
                     state['average_entry'] = live_avg_entry
@@ -571,8 +571,7 @@ def run_exit_logic(state, levels):
         exit_qty = round(position_size * config.EXIT_SIZE_PCT, 1)
 
         # make sure the exit qty meets minimum order size
-        if exit_qty < 0.1:
-            exit_qty = 0.1
+        exit_qty = max(round(position_size * config.EXIT_SIZE_PCT, 1), 0.1)
 
         # check each exit level
         for i, exit_price in enumerate(levels['exit_levels']):
@@ -636,7 +635,7 @@ def run_exit_logic(state, levels):
                 send_telegram(f'Moonbag trailing stop triggeres at ${current_price} - closing position')
 
                 # close remaining position at market
-                session.place_orders(
+                session.place_order(
                     category=config.CATEGORY,
                     symbol=config.SYMBOL,
                     side="Sell",

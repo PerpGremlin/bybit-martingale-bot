@@ -294,6 +294,18 @@ def reconcile_state(state):
             logging.warning('Bybit shows open position but state says no cycle - updating state')
             state['cycle_active'] = True
 
+        if bybit_has_positions:
+            for p in positions:
+                if float(p['size']) > 0:
+                    live_avg_entry = float(p['avgPrice'])
+                    state['average_entry'] = live_avg_entry
+                    logging.info(f'Average entry synced from Bybit: ${live_avg_entry}')
+                    # if anchor is missing or stale, set it from average entry
+                    if state ['anchor_price'] is None:
+                        state['anchor_price'] = live_avg_entry
+                        logging.info(f'Anchor price set from average entry: ${live_avg_entry}')
+                    break
+
         # if bybit shows no position but state says cycle active
         # trust bybit and reset state
         if not bybit_has_position and state['cycle_active']:
@@ -596,13 +608,18 @@ def run_exit_logic(state, levels):
                     logging.info('No position remaining - skipping exit order')
                     break
                 # place the exit order
-                place_order(
+                order_id = place_order(
                     symbol=config.SYMBOL,
                     side="Sell",
                     qty=exit_qty,
                     price=exit_price,
                     order_tag=order_tag
                 )
+                # if order failed clear the stored tag
+                # so a fresh one is generated next loop
+                if order_id is None:
+                    state['exit_order_tags'].pop(tag_key, None)
+                    save_state(state)
 
         # handle moonbag trailing stop
         if state['moonbag_active']:
